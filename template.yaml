@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SAM template for PipelineNotifier Application
+Globals:
+  Function:
+    Runtime: python3.8
+    Timeout: 30
+Parameters:
+  ServiceName:
+    Type: String
+    Default: PipelineNotifier
+  CustomizedNotificationTopicArn:
+    Type: String
+Resources:
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:aws:iam::${AWS::AccountId}:policy/SecretsViewOnly"
+        - !Sub "arn:aws:iam::aws:policy/AWSCodePipelineReadOnlyAccess"
+      Policies:
+        - PolicyName: "SNSPublishPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "sns:Publish"
+                Resource: !Ref CustomizedNotificationTopicArn
+
+  CustomizeNotification:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: 
+        Fn::Sub: "${ServiceName}-CustomizeNotification"
+      CodeUri: aws-pipeline-notifier/
+      Handler: app.lambda_handler
+      Role: !GetAtt LambdaRole.Arn
+      Environment:
+        Variables:
+          CustomizedNotificationTopicArn: !Ref CustomizedNotificationTopicArn
+      # Events:
+      #   SNSEvent:
+      #     Type: SNS
+      #     Properties:
+      #       Topic: !Ref SNSTopicArn
