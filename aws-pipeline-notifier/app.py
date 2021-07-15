@@ -19,7 +19,7 @@ def lambda_handler(event, context):
     notification_subject = ""
     notification_body = ""
 
-    if pipeline_state == "SUCCESS":
+    if pipeline_state == "SUCCEEDED":
         notification_subject = f'AWS Deployment Successful - {pipeline_name} - {local_deployment_time}'
         notification_body = ""
     elif pipeline_state == "FAILED":
