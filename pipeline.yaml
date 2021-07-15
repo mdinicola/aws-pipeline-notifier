@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Build and Deployment pipeline for the PipelineNotifier service
+
+Parameters:
+  ServiceName:
+    Description: The name of the project
+    Default: PipelineNotifier
+    Type: String
+  RepositoryName:
+    Description: The full repository name e.g some-user/my-repo
+    Default: mdinicola/aws-pipeline-notifier
+    Type: String
+  RepositoryBranchName:
+    Description: The repository branch to watch for changes
+    Default: main
+    Type: String
+  RepositoryConnectionArn:
+    Description: The ARN of the CodeStar connection to the external repository
+    Type: String
+  BuildProjectRoleName:
+    Description: The IAM role name to use with CodeBuild
+    Default: CodeBuildRole
+    Type: String
+  DeployRoleName:
+    Description: The IAM role name to deploy the CloudFormation stack
+    Default: ServerlessDeploymentRole
+    Type: String
+  PipelineRoleName:
+    Description: The IAM role name of the pipeline role
+    Default: CodePipelineRole
+    Type: String
+  PipelineNotificationTopicName:
+    Description: The SNS topic name for pipeline notifications
+    Default: CodePipelineNotifications
+    Type: String
+  ArtifactsBucketName:
+    Description: The name of the artifacts bucket
+    Type: String
+  CustomizedNotificationTopicName:
+    Description: The SNS topic name for sending customized notifications
+    Default: CustomizedNotifications
+    Type: String
+
+Resources:
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Ref ServiceName
+      ServiceRole: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/${BuildProjectRoleName}
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspec.yaml
+      Artifacts: 
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:3.0'
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: ARTIFACTS_BUCKET
+            Value: !Ref ArtifactsBucketName
+          - Name: ARTIFACTS_FOLDER
+            Value: !Ref ServiceName
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Ref ServiceName
+      ArtifactStore: 
+        Location: !Ref ArtifactsBucketName
+        Type: S3
+      RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/${PipelineRoleName}
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitHubSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: 1
+              Configuration:
+                ConnectionArn: !Ref RepositoryConnectionArn
+                FullRepositoryId: !Ref RepositoryName
+                BranchName: !Ref RepositoryBranchName
+                OutputArtifactFormat: CODE_ZIP
+                DetectChanges: true
+              OutputArtifacts:
+                - Name: SourceArtifact
+        - Name: Build
+          Actions: 
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref ServiceName
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+        - Name: Deploy
+          Actions:
+            - Name: CreateChangeSet
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: 1
+              InputArtifacts:
+                - Name: BuildArtifact
+              Configuration: 
+                ActionMode: CHANGE_SET_REPLACE
+                Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/${DeployRoleName}
+                StackName: !Ref ServiceName
+                TemplatePath: "BuildArtifact::packaged-template.yaml"
+                ChangeSetName: !Sub a-${ServiceName}-Deploy
+                ParameterOverrides: !Sub "{\"PipelineTopicArn\": \"arn:aws:sns:${AWS::Region}:${AWS::AccountId}:${PipelineNotificationTopicName}\", \"CustomizedNotificationTopicArn\": \"arn:aws:sns:${AWS::Region}:${AWS::AccountId}:${CustomizedNotificationTopicName}\"}"
+              RunOrder: 1
+            - Name: ExecuteChangeSet
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: 1
+              Configuration: 
+                ActionMode: CHANGE_SET_EXECUTE
+                StackName: !Ref ServiceName
+                ChangeSetName: !Sub a-${ServiceName}-Deploy
+              RunOrder: 2
+
+  PipelineNotificationRule:
+    Type: 'AWS::CodeStarNotifications::NotificationRule'
+    Properties:
+      Name: !Sub "${ServiceName}-PipelineNotificationRule"
+      DetailType: BASIC
+      Resource: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}"
+      EventTypeIds:
+        - codepipeline-pipeline-pipeline-execution-succeeded
+        - codepipeline-pipeline-pipeline-execution-canceled
+        - codepipeline-pipeline-pipeline-execution-failed
+      Targets: 
+        - TargetType: SNS 
+          TargetAddress: !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:${PipelineNotificationTopicName}"
+
+Outputs:
+  PipelineName:
+    Value: !Ref Pipeline
+  PipelineVersion:
+    Value: !GetAtt Pipeline.Version
