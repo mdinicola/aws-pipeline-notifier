@@ -9,6 +9,8 @@ Parameters:
   ServiceName:
     Type: String
     Default: PipelineNotifier
+  PipelineTopicArn:
+    Type: String
   CustomizedNotificationTopicArn:
     Type: String
 Resources:
@@ -46,8 +48,8 @@ Resources:
       Environment:
         Variables:
           CustomizedNotificationTopicArn: !Ref CustomizedNotificationTopicArn
-      # Events:
-      #   SNSEvent:
-      #     Type: SNS
-      #     Properties:
-      #       Topic: !Ref SNSTopicArn
+      Events:
+        SNSEvent:
+          Type: SNS
+          Properties:
+            Topic: !Ref PipelineTopicArn
