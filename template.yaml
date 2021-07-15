@@ -7,11 +7,14 @@ Globals:
     Timeout: 30
 Parameters:
   ServiceName:
+    Description: The name of the project
     Type: String
     Default: PipelineNotifier
   PipelineTopicArn:
+    Description: The SNS topic ARN for pipeline notifications
     Type: String
   CustomizedNotificationTopicArn:
+    Description: The SNS topic ARN for sending customized notifications
     Type: String
 Resources:
   LambdaRole:
