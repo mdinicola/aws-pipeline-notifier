@@ -1,0 +1,15 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.8
+  build:
+    commands:
+       - sam build 
+  post_build:
+    commands:
+       - sam package --output-template-file packaged-template.yaml --s3-bucket $ARTIFACTS_BUCKET --s3-prefix $ARTIFACTS_FOLDER
+artifacts:
+    files:
+      - packaged-template.yaml
